@@ -1,0 +1,17 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: end-of-day-db
+    restart: always
+    environment:
+      MYSQL_DATABASE: end_of_day_db
+      MYSQL_USER: kafe_user
+      MYSQL_PASSWORD: kafe_password
+      MYSQL_ROOT_PASSWORD: root_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:

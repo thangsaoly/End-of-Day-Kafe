@@ -1,0 +1,87 @@
+# ====================================================================
+# Root .gitignore for End-of-Day Kafe (Android + Java Maven Backend)
+# ====================================================================
+
+# --------------------------------------------------------------------
+# Operating System & Editors
+# --------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+*.swp
+*.bak
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# --------------------------------------------------------------------
+# Android / Gradle
+# --------------------------------------------------------------------
+# Gradle files
+.gradle/
+build/
+**/build/
+**/bin/
+
+# Local SDK & Properties
+local.properties
+.cxx/
+
+# Profiling & Memory Dumps
+*.hprof
+captures/
+**/captures/
+
+# Output Packages & Signings
+*.apk
+*.aab
+*.ap_
+*.dex
+*.keystore
+*.jks
+
+# Android Studio Navigation / Visual Assets Cache
+.navigation/
+
+# --------------------------------------------------------------------
+# Backend (Java / Maven)
+# --------------------------------------------------------------------
+target/
+**/target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# --------------------------------------------------------------------
+# Logs, Environment Variables & Secrets
+# --------------------------------------------------------------------
+*.log
+*.log.*
+logs/
+**/logs/
+.env
+.env.*
+!.env.example
+
+# Temporary / Cache files
+tmp/
+temp/
+scratch/
