@@ -91,6 +91,10 @@ dependencies {
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.analytics)
 
+    // QR claim codes: zxing draws them, the Google code scanner reads them (no camera permission)
+    implementation(libs.zxing.core)
+    implementation(libs.play.services.code.scanner)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")

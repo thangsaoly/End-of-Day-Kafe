@@ -37,7 +37,9 @@ Problems found in the current code that must be fixed before the features.
 
 ---
 
-## Phase 1: QR code claiming (1–2 days)
+## Phase 1: QR code claiming (1–2 days) 🟡 Built, not yet tested on a device
+
+> No backend changes. QR encoding and claim-code validation are in `qr/ClaimQr.kt`; the customer's QR dialog (which turns brightness to full) is `ui/components/ClaimQrDialog.kt`. A scanned code is checked against the `KAFE-XXXX` format before it is sent. `gradle.properties` now sets a 2 GB Gradle heap, because the default 512 MB caused out-of-memory errors when building the APK.
 
 ### Backend
 - Almost nothing to do. `POST /api/merchant/reservations/claim-by-code/{claimCode}` already exists; the cafe check from Phase 0 is what makes it safe.
