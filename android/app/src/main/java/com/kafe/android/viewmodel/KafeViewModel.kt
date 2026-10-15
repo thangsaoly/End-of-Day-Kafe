@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.kafe.android.model.Reservation
 import com.kafe.android.model.SurplusDeal
 import com.kafe.android.network.*
+import com.kafe.android.push.PushTokens
 import com.kafe.android.repository.KafeRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,11 +28,13 @@ sealed interface UiEvent {
     data class ReservationError(val message: String) : UiEvent
     data class ClaimSuccess(val reservation: Reservation) : UiEvent
     data class ClaimError(val message: String) : UiEvent
+    data class FavoriteError(val message: String) : UiEvent
 }
 
 class KafeViewModel(
     private val repository: KafeRepository,
-    private val authManager: AuthManager
+    private val authManager: AuthManager,
+    private val pushTokens: PushTokens = PushTokens.None
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading)
@@ -42,6 +45,13 @@ class KafeViewModel(
 
     private val _merchantReservationsState = MutableStateFlow<List<Reservation>>(emptyList())
     val merchantReservationsState: StateFlow<List<Reservation>> = _merchantReservationsState.asStateFlow()
+
+    private val _favoriteCafeIds = MutableStateFlow<Set<Long>>(emptySet())
+    val favoriteCafeIds: StateFlow<Set<Long>> = _favoriteCafeIds.asStateFlow()
+
+    // Deal to scroll to after tapping a "new deal" notification; cleared once shown
+    private val _focusedDealId = MutableStateFlow<Long?>(null)
+    val focusedDealId: StateFlow<Long?> = _focusedDealId.asStateFlow()
 
     var isLoggedIn: Boolean by mutableStateOf(authManager.isLoggedIn())
         private set
@@ -70,6 +80,8 @@ class KafeViewModel(
             } else {
                 loadReservations()
             }
+            loadFavorites()
+            registerPushToken()
         }
     }
 
@@ -232,6 +244,8 @@ class KafeViewModel(
                     } else {
                         loadReservations()
                     }
+                    loadFavorites()
+                    registerPushToken()
                     onResult(Result.success(response))
                 }
                 .onFailure {
@@ -262,6 +276,8 @@ class KafeViewModel(
                     } else {
                         loadReservations()
                     }
+                    loadFavorites()
+                    registerPushToken()
                     onResult(Result.success(response))
                 }
                 .onFailure {
@@ -315,6 +331,13 @@ class KafeViewModel(
     }
 
     fun logout() {
+        // Stop this phone getting the user's alerts. Grab the auth token before it is cleared.
+        authManager.getToken()?.let { authToken ->
+            viewModelScope.launch {
+                pushTokens.current()?.let { repository.unregisterDevice(authToken, it) }
+            }
+        }
+        _favoriteCafeIds.value = emptySet()
         authManager.clearAuth()
         isLoggedIn = false
         userRole = "CUSTOMER"
@@ -322,5 +345,57 @@ class KafeViewModel(
         _reservationsState.value = emptyList()
         _merchantReservationsState.value = emptyList()
         loadDeals()
+    }
+
+    fun loadFavorites() {
+        val token = authManager.getToken() ?: return
+        viewModelScope.launch {
+            repository.getFavorites(token)
+                .onSuccess { cafes -> _favoriteCafeIds.value = cafes.map { it.id }.toSet() }
+        }
+    }
+
+    // Updates the heart immediately, then reverts if the server call fails
+    fun toggleFavorite(cafeId: Long) {
+        val token = authManager.getToken()
+        if (token == null) {
+            viewModelScope.launch {
+                _eventFlow.emit(UiEvent.FavoriteError("Please log in to follow cafes."))
+            }
+            return
+        }
+
+        val wasFavorite = cafeId in _favoriteCafeIds.value
+        _favoriteCafeIds.value = if (wasFavorite) _favoriteCafeIds.value - cafeId else _favoriteCafeIds.value + cafeId
+
+        viewModelScope.launch {
+            val result = if (wasFavorite) {
+                repository.removeFavorite(token, cafeId)
+            } else {
+                repository.addFavorite(token, cafeId)
+            }
+            result.onFailure { error ->
+                _favoriteCafeIds.value = if (wasFavorite) _favoriteCafeIds.value + cafeId else _favoriteCafeIds.value - cafeId
+                _eventFlow.emit(UiEvent.FavoriteError(error.message ?: "Could not update favourites."))
+            }
+        }
+    }
+
+    // Reload so a just-posted deal is in the list, then let the Deals tab scroll to it
+    fun openDeal(dealId: Long) {
+        _focusedDealId.value = dealId
+        loadDeals()
+    }
+
+    fun onDealFocused() {
+        _focusedDealId.value = null
+    }
+
+    private fun registerPushToken() {
+        val token = authManager.getToken() ?: return
+        viewModelScope.launch {
+            val pushToken = pushTokens.current() ?: return@launch
+            repository.registerDevice(token, pushToken)
+        }
     }
 }

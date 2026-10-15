@@ -1,5 +1,6 @@
 package com.kafe.android.repository
 
+import com.kafe.android.model.Cafe
 import com.kafe.android.model.Reservation
 import com.kafe.android.model.SurplusDeal
 import com.kafe.android.network.*
@@ -54,6 +55,48 @@ class KafeRepository(private val api: KafeApi) {
         }
     }
 
+    suspend fun getFavorites(token: String): Result<List<Cafe>> {
+        return try {
+            Result.success(api.getFavorites("Bearer $token"))
+        } catch (e: Exception) {
+            Result.failure(Exception(NetworkErrorParser.parseException(e)))
+        }
+    }
+
+    suspend fun addFavorite(token: String, cafeId: Long): Result<Unit> {
+        return try {
+            api.addFavorite("Bearer $token", cafeId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(Exception(NetworkErrorParser.parseException(e)))
+        }
+    }
+
+    suspend fun removeFavorite(token: String, cafeId: Long): Result<Unit> {
+        return unitCall { api.removeFavorite("Bearer $token", cafeId) }
+    }
+
+    suspend fun registerDevice(token: String, pushToken: String): Result<Unit> {
+        return unitCall { api.registerDevice("Bearer $token", DeviceTokenRequest(pushToken)) }
+    }
+
+    suspend fun unregisterDevice(token: String, pushToken: String): Result<Unit> {
+        return unitCall { api.unregisterDevice("Bearer $token", DeviceTokenRequest(pushToken)) }
+    }
+
+    // For endpoints that return an empty body (204), where Retrofit doesn't throw on HTTP errors
+    private suspend fun unitCall(call: suspend () -> retrofit2.Response<Unit>): Result<Unit> {
+        return try {
+            val response = call()
+            if (response.isSuccessful) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception(NetworkErrorParser.parseException(retrofit2.HttpException(response))))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(NetworkErrorParser.parseException(e)))
+        }
+    }
 
     suspend fun register(request: RegisterRequest): Result<AuthResponse> {
         return try {

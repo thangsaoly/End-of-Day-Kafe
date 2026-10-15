@@ -1,6 +1,7 @@
 package com.kafe.service;
 
 import com.kafe.dto.CreateDealRequest;
+import com.kafe.event.DealCreatedEvent;
 import com.kafe.model.Cafe;
 import com.kafe.model.Reservation;
 import com.kafe.model.SurplusDeal;
@@ -9,6 +10,7 @@ import com.kafe.repository.CafeRepository;
 import com.kafe.repository.ReservationRepository;
 import com.kafe.repository.SurplusDealRepository;
 import com.kafe.repository.UserRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,17 +27,20 @@ public class KafeService {
     private final ReservationRepository reservationRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
 
     public KafeService(CafeRepository cafeRepository, 
                        SurplusDealRepository surplusDealRepository,
                        ReservationRepository reservationRepository,
                        UserRepository userRepository,
-                       Clock clock) {
+                       Clock clock,
+                       ApplicationEventPublisher eventPublisher) {
         this.cafeRepository = cafeRepository;
         this.surplusDealRepository = surplusDealRepository;
         this.reservationRepository = reservationRepository;
         this.userRepository = userRepository;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     public List<Cafe> getAllCafes() {
@@ -93,7 +98,9 @@ public class KafeService {
                 request.getImageUrl()
         );
         deal.setPickupDate(pickupDate);
-        return surplusDealRepository.save(deal);
+        SurplusDeal saved = surplusDealRepository.save(deal);
+        eventPublisher.publishEvent(new DealCreatedEvent(saved.getId()));
+        return saved;
     }
 
     @Transactional

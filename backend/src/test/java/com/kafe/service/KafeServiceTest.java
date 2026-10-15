@@ -1,6 +1,7 @@
 package com.kafe.service;
 
 import com.kafe.dto.CreateDealRequest;
+import com.kafe.event.DealCreatedEvent;
 import com.kafe.model.Cafe;
 import com.kafe.model.Reservation;
 import com.kafe.model.SurplusDeal;
@@ -12,8 +13,10 @@ import com.kafe.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -41,6 +44,9 @@ public class KafeServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private KafeService kafeService;
 
     // 2026-10-15 18:00 in Phnom Penh
@@ -53,7 +59,7 @@ public class KafeServiceTest {
 
     @BeforeEach
     void setUp() {
-        kafeService = new KafeService(cafeRepository, surplusDealRepository, reservationRepository, userRepository, fixedClock);
+        kafeService = new KafeService(cafeRepository, surplusDealRepository, reservationRepository, userRepository, fixedClock, eventPublisher);
 
         testUser = new User("Sophea", "012345678", "hashed_pass");
         testUser.setId(1L);
@@ -279,9 +285,17 @@ public class KafeServiceTest {
     @Test
     void createDeal_Success_DefaultsPickupDateToTodayInPhnomPenh() {
         when(cafeRepository.findById(10L)).thenReturn(Optional.of(testCafe));
-        when(surplusDealRepository.save(any(SurplusDeal.class))).thenAnswer(i -> i.getArgument(0));
+        when(surplusDealRepository.save(any(SurplusDeal.class))).thenAnswer(i -> {
+            SurplusDeal saved = i.getArgument(0);
+            saved.setId(555L);
+            return saved;
+        });
 
         SurplusDeal deal = kafeService.createDeal(dealRequest(6.00, 2.00, null, "19:00", "20:30"), merchant);
+
+        ArgumentCaptor<DealCreatedEvent> event = ArgumentCaptor.forClass(DealCreatedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertEquals(555L, event.getValue().dealId());
 
         assertEquals(testCafe, deal.getCafe());
         assertEquals("Mystery Pastry Bag", deal.getTitle());
@@ -296,6 +310,7 @@ public class KafeServiceTest {
         assertThrows(IllegalStateException.class, () ->
                 kafeService.createDeal(dealRequest(5.00, 5.00, null, "19:00", "20:30"), merchant));
         verify(surplusDealRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
