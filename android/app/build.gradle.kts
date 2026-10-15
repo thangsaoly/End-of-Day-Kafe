@@ -91,6 +91,12 @@ dependencies {
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.auth)
+
+    // Google Sign-In through Android Credential Manager
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services)
+    implementation(libs.googleid)
 
     // QR claim codes: zxing draws them, the Google code scanner reads them (no camera permission)
     implementation(libs.zxing.core)

@@ -1,95 +1,52 @@
 package com.kafe.dto;
 
+import com.kafe.model.User;
+
+// The signed-in user's profile. The app keeps using its Firebase ID token for requests.
 public class AuthResponse {
-    private String token;
-    private Long id;
-    private String name;
-    private String phoneNumber;
-    private String email;
-    private boolean emailConfirmed;
-    private String role;
-    private Long cafeId;
+    private final Long id;
+    private final String name;
+    private final String phoneNumber;
+    private final String email;
+    private final boolean emailConfirmed;
+    private final String role;
+    private final Long cafeId;
 
-    public AuthResponse(String token, Long id, String name, String phoneNumber, String email, boolean emailConfirmed) {
-        this(token, id, name, phoneNumber, email, emailConfirmed, "CUSTOMER");
-    }
-
-    public AuthResponse(String token, Long id, String name, String phoneNumber, String email, boolean emailConfirmed, String role) {
-        this.token = token;
-        this.id = id;
-        this.name = name;
-        this.phoneNumber = phoneNumber;
-        this.email = email;
-        this.emailConfirmed = emailConfirmed;
-        this.role = role != null ? role : "CUSTOMER";
-    }
-
-    public AuthResponse(String token, Long id, String name, String phoneNumber, String email, boolean emailConfirmed, String role, Long cafeId) {
-        this(token, id, name, phoneNumber, email, emailConfirmed, role);
-        this.cafeId = cafeId;
-    }
-
-    public String getToken() {
-        return token;
-    }
-
-    public void setToken(String token) {
-        this.token = token;
+    public AuthResponse(User user) {
+        this.id = user.getId();
+        this.name = user.getName();
+        this.phoneNumber = user.getPhoneNumber();
+        this.email = user.getEmail();
+        this.emailConfirmed = user.isEmailConfirmed();
+        this.role = user.getRole() != null ? user.getRole() : "CUSTOMER";
+        this.cafeId = user.getCafeId();
     }
 
     public Long getId() {
         return id;
     }
 
-    public void setId(Long id) {
-        this.id = id;
-    }
-
     public String getName() {
         return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
     }
 
     public String getPhoneNumber() {
         return phoneNumber;
     }
 
-    public void setPhoneNumber(String phoneNumber) {
-        this.phoneNumber = phoneNumber;
-    }
-
     public String getEmail() {
         return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
     }
 
     public boolean isEmailConfirmed() {
         return emailConfirmed;
     }
 
-    public void setEmailConfirmed(boolean emailConfirmed) {
-        this.emailConfirmed = emailConfirmed;
-    }
-
     public String getRole() {
         return role;
     }
 
-    public void setRole(String role) {
-        this.role = role;
-    }
-
     public Long getCafeId() {
         return cafeId;
-    }
-
-    public void setCafeId(Long cafeId) {
-        this.cafeId = cafeId;
     }
 }

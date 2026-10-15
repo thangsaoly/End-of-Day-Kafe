@@ -10,14 +10,14 @@ public class UserJsonTest {
     @Test
     void serializedUser_DoesNotExposeSecrets() throws Exception {
         User user = new User("Sophea", "012345678", "$2a$10$secretHash", "CUSTOMER");
-        user.setEmailVerificationCode("777111");
+        user.setFirebaseUid("firebase-uid-123");
 
         String json = new ObjectMapper().writeValueAsString(user);
 
         assertFalse(json.contains("passwordHash"), json);
         assertFalse(json.contains("secretHash"), json);
-        assertFalse(json.contains("emailVerificationCode"), json);
-        assertFalse(json.contains("777111"), json);
+        assertFalse(json.contains("firebaseUid"), json);
+        assertFalse(json.contains("firebase-uid-123"), json);
         assertTrue(json.contains("Sophea"));
     }
 }

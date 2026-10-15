@@ -58,13 +58,11 @@ Problems found in the current code that must be fixed before the features.
 
 ---
 
-## Phase 2: Favourite cafes + new-deal alerts (3–4 days) 🟡 Built; push needs the real `google-services.json`
+## Phase 2: Favourite cafes + new-deal alerts (3–4 days) 🟡 Built, not yet tested on a device
 
-> Backend sending is verified against the real FCM servers with the service-account key. Not yet verified: receiving a push on a phone, because the app's `android/app/google-services.json` is still a placeholder (project `end-of-day-kafe-mock`).
+> Backend sending was verified against the real FCM servers. Not yet verified: receiving a push on a phone.
 >
-> **Setup**
-> 1. Backend: `FIREBASE_CREDENTIALS=/path/to/…-firebase-adminsdk-….json mvn spring-boot:run`. Keep the key outside the repo; `.gitignore` blocks `*firebase-adminsdk*.json`. Without the variable, pushes are only logged.
-> 2. App: in the Firebase console for project `studio-1430365048-126b3`, add an Android app with package `com.kafe.android`, download its `google-services.json`, and replace `android/app/google-services.json`.
+> **Setup:** see [firebase-setup.md](firebase-setup.md). The app now uses its own Firebase project, `end-of-day-kafe`.
 >
 > **As built:** `POST /api/devices/unregister` is used instead of `DELETE` (FCM tokens in a URL path are awkward). The backend sends data-only, high-priority messages, so the app draws the notification itself. The notification permission is requested the first time a user taps a heart.
 

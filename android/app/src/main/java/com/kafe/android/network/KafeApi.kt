@@ -5,48 +5,29 @@ import com.kafe.android.BuildConfig
 import com.kafe.android.model.Cafe
 import com.kafe.android.model.Reservation
 import com.kafe.android.model.SurplusDeal
-import okhttp3.ResponseBody
+import com.kafe.android.auth.AuthClient
+import kotlinx.coroutines.runBlocking
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
 
-// Auth DTOs
-data class RegisterRequest(
-    val name: String,
-    val phoneNumber: String,
-    val password: String,
-    val role: String = "CUSTOMER"
-)
-
-data class LoginRequest(
-    val phoneNumber: String,
-    val password: String
+// Auth DTOs. Sign-in itself happens in Firebase; the backend only creates the profile.
+data class SessionRequest(
+    val name: String? = null,
+    val role: String? = null
 )
 
 data class AuthResponse(
-    val token: String,
     val id: Long,
     val name: String,
-    val phoneNumber: String,
+    val phoneNumber: String?,
     val email: String?,
     val emailConfirmed: Boolean,
-    val role: String = "CUSTOMER"
-)
-
-data class VerifyEmailRequest(
-    val email: String,
-    val code: String
-)
-
-data class ForgotPasswordRequest(
-    val email: String
-)
-
-data class ResetPasswordRequest(
-    val email: String,
-    val code: String,
-    val newPassword: String
+    val role: String = "CUSTOMER",
+    val cafeId: Long? = null
 )
 
 data class DeviceTokenRequest(
@@ -60,96 +41,56 @@ interface KafeApi {
 
     @POST("deals/{id}/reserve")
     suspend fun reserveDeal(
-        @Header("Authorization") token: String,
         @Path("id") id: Long
     ): Reservation
 
     @GET("reservations")
-    suspend fun getReservations(
-        @Header("Authorization") token: String
-    ): List<Reservation>
+    suspend fun getReservations(): List<Reservation>
 
     // Merchant Endpoints
     @GET("merchant/reservations")
-    suspend fun getMerchantReservations(
-        @Header("Authorization") token: String
-    ): List<Reservation>
+    suspend fun getMerchantReservations(): List<Reservation>
 
     @POST("merchant/reservations/{id}/claim")
     suspend fun claimReservation(
-        @Header("Authorization") token: String,
         @Path("id") id: Long
     ): Reservation
 
     @POST("merchant/reservations/claim-by-code/{claimCode}")
     suspend fun claimReservationByCode(
-        @Header("Authorization") token: String,
         @Path("claimCode") claimCode: String
     ): Reservation
 
     // Favourite cafes
     @GET("favorites")
-    suspend fun getFavorites(
-        @Header("Authorization") token: String
-    ): List<Cafe>
+    suspend fun getFavorites(): List<Cafe>
 
     @POST("favorites/{cafeId}")
     suspend fun addFavorite(
-        @Header("Authorization") token: String,
         @Path("cafeId") cafeId: Long
     ): Cafe
 
     @DELETE("favorites/{cafeId}")
     suspend fun removeFavorite(
-        @Header("Authorization") token: String,
         @Path("cafeId") cafeId: Long
     ): Response<Unit>
 
     // Push notification device tokens
     @POST("devices")
     suspend fun registerDevice(
-        @Header("Authorization") token: String,
         @Body request: DeviceTokenRequest
     ): Response<Unit>
 
     @POST("devices/unregister")
     suspend fun unregisterDevice(
-        @Header("Authorization") token: String,
         @Body request: DeviceTokenRequest
     ): Response<Unit>
 
-    // Authentication Endpoints
-    @POST("auth/register")
-    suspend fun register(
-        @Body request: RegisterRequest
+    // Called after every Firebase sign-in; creates the backend account the first time
+    @POST("auth/session")
+    suspend fun startSession(
+        @Body request: SessionRequest
     ): AuthResponse
-
-    @POST("auth/login")
-    suspend fun login(
-        @Body request: LoginRequest
-    ): AuthResponse
-
-    @POST("auth/link-email")
-    suspend fun linkEmail(
-        @Header("Authorization") token: String,
-        @Query("email") email: String
-    ): ResponseBody
-
-    @POST("auth/verify-email")
-    suspend fun verifyEmail(
-        @Header("Authorization") token: String,
-        @Body request: VerifyEmailRequest
-    ): ResponseBody
-
-    @POST("auth/forgot-password")
-    suspend fun forgotPassword(
-        @Body request: ForgotPasswordRequest
-    ): ResponseBody
-
-    @POST("auth/reset-password")
-    suspend fun resetPassword(
-        @Body request: ResetPasswordRequest
-    ): ResponseBody
 
     companion object {
         private fun getBaseUrl(): String {
@@ -188,13 +129,31 @@ interface KafeApi {
             }
         }
 
-        fun create(baseUrl: String = getBaseUrl()): KafeApi {
+        fun create(authClient: AuthClient, baseUrl: String = getBaseUrl()): KafeApi {
             android.util.Log.d("KafeApi", "Connecting to Base URL: $baseUrl")
+            val client = OkHttpClient.Builder()
+                .addInterceptor(FirebaseTokenInterceptor(authClient))
+                .build()
             return Retrofit.Builder()
                 .baseUrl(baseUrl)
+                .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()
                 .create(KafeApi::class.java)
         }
+    }
+}
+
+// Adds "Authorization: Bearer <Firebase ID token>" when signed in. Runs on OkHttp's
+// background threads, so blocking for the (usually cached) token is fine.
+class FirebaseTokenInterceptor(private val authClient: AuthClient) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+        val token = runCatching { runBlocking { authClient.idToken() } }.getOrNull()
+        val request = if (token != null) {
+            chain.request().newBuilder().header("Authorization", "Bearer $token").build()
+        } else {
+            chain.request()
+        }
+        return chain.proceed(request)
     }
 }

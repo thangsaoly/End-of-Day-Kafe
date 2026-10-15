@@ -13,11 +13,18 @@ public class User {
     @Column(nullable = false)
     private String name;
 
-    @Column(name = "phone_number", nullable = false, unique = true)
+    // Firebase Authentication user ID; this is how a signed-in request finds its user
+    @JsonIgnore
+    @Column(name = "firebase_uid", unique = true, length = 128)
+    private String firebaseUid;
+
+    // Optional now that sign-in is by email or Google
+    @Column(name = "phone_number", unique = true)
     private String phoneNumber;
 
+    // Legacy: from before Firebase Authentication. Always null for new users.
     @JsonIgnore
-    @Column(name = "password_hash", nullable = false)
+    @Column(name = "password_hash")
     private String passwordHash;
 
     @Column(name = "email")
@@ -31,10 +38,6 @@ public class User {
 
     @Column(name = "is_banned", nullable = false)
     private boolean isBanned = false;
-
-    @JsonIgnore
-    @Column(name = "email_verification_code")
-    private String emailVerificationCode;
 
     @Column(name = "role", nullable = false)
     private String role = "CUSTOMER";
@@ -123,20 +126,20 @@ public class User {
         this.isBanned = banned;
     }
 
-    public String getEmailVerificationCode() {
-        return emailVerificationCode;
-    }
-
-    public void setEmailVerificationCode(String emailVerificationCode) {
-        this.emailVerificationCode = emailVerificationCode;
-    }
-
     public String getRole() {
         return role;
     }
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public String getFirebaseUid() {
+        return firebaseUid;
+    }
+
+    public void setFirebaseUid(String firebaseUid) {
+        this.firebaseUid = firebaseUid;
     }
 
     public Long getCafeId() {
