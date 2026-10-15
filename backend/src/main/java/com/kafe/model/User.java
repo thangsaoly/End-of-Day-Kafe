@@ -1,5 +1,6 @@
 package com.kafe.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
 @Entity
@@ -15,6 +16,7 @@ public class User {
     @Column(name = "phone_number", nullable = false, unique = true)
     private String phoneNumber;
 
+    @JsonIgnore
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
@@ -30,11 +32,16 @@ public class User {
     @Column(name = "is_banned", nullable = false)
     private boolean isBanned = false;
 
+    @JsonIgnore
     @Column(name = "email_verification_code")
     private String emailVerificationCode;
 
     @Column(name = "role", nullable = false)
     private String role = "CUSTOMER";
+
+    // The cafe a MERCHANT account manages; null for customers and unassigned merchants
+    @Column(name = "cafe_id")
+    private Long cafeId;
 
     public User() {}
 
@@ -130,5 +137,13 @@ public class User {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public Long getCafeId() {
+        return cafeId;
+    }
+
+    public void setCafeId(Long cafeId) {
+        this.cafeId = cafeId;
     }
 }

@@ -1,5 +1,6 @@
 package com.kafe.service;
 
+import com.kafe.dto.CreateDealRequest;
 import com.kafe.model.Cafe;
 import com.kafe.model.Reservation;
 import com.kafe.model.SurplusDeal;
@@ -11,10 +12,14 @@ import com.kafe.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,15 +41,20 @@ public class KafeServiceTest {
     @Mock
     private UserRepository userRepository;
 
-    @InjectMocks
     private KafeService kafeService;
 
+    // 2026-10-15 18:00 in Phnom Penh
+    private final Clock fixedClock = Clock.fixed(Instant.parse("2026-10-15T11:00:00Z"), ZoneId.of("Asia/Phnom_Penh"));
+
     private User testUser;
+    private User merchant;
     private SurplusDeal testDeal;
     private Cafe testCafe;
 
     @BeforeEach
     void setUp() {
+        kafeService = new KafeService(cafeRepository, surplusDealRepository, reservationRepository, userRepository, fixedClock);
+
         testUser = new User("Sophea", "012345678", "hashed_pass");
         testUser.setId(1L);
 
@@ -53,6 +63,10 @@ public class KafeServiceTest {
 
         testDeal = new SurplusDeal(testCafe, "Croissant Mystery Box", 4.50, 1.50, 3, "18:00", "20:00", "http://example.com/item.png");
         testDeal.setId(100L);
+
+        merchant = new User("Shop Merchant", "099888777", "pass", "MERCHANT");
+        merchant.setId(2L);
+        merchant.setCafeId(10L);
     }
 
     @Test
@@ -116,9 +130,6 @@ public class KafeServiceTest {
 
     @Test
     void claimReservation_Success() {
-        User merchant = new User("Shop Merchant", "099888777", "pass", "MERCHANT");
-        merchant.setId(2L);
-
         Reservation reservation = new Reservation(testDeal, testUser, "KAFE-1234");
         reservation.setId(50L);
         when(reservationRepository.findById(50L)).thenReturn(Optional.of(reservation));
@@ -146,6 +157,7 @@ public class KafeServiceTest {
     void claimReservation_ThrowsSecurityException_WhenCustomerTriesSelfClaim() {
         User merchantWhoIsAlsoCustomer = new User("Sophea", "012345678", "pass", "MERCHANT");
         merchantWhoIsAlsoCustomer.setId(1L); // same ID as testUser who placed reservation
+        merchantWhoIsAlsoCustomer.setCafeId(10L);
 
         Reservation reservation = new Reservation(testDeal, testUser, "KAFE-1234");
         reservation.setId(50L);
@@ -160,9 +172,6 @@ public class KafeServiceTest {
 
     @Test
     void claimReservationByCode_Success() {
-        User merchant = new User("Shop Merchant", "099888777", "pass", "MERCHANT");
-        merchant.setId(2L);
-
         Reservation reservation = new Reservation(testDeal, testUser, "KAFE-9999");
         reservation.setId(99L);
         when(reservationRepository.findByClaimCode("KAFE-9999")).thenReturn(Optional.of(reservation));
@@ -176,9 +185,6 @@ public class KafeServiceTest {
 
     @Test
     void claimReservationByCode_ThrowsException_WhenNotFound() {
-        User merchant = new User("Shop Merchant", "099888777", "pass", "MERCHANT");
-        merchant.setId(2L);
-
         when(reservationRepository.findByClaimCode("KAFE-INVALID")).thenReturn(Optional.empty());
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
@@ -195,11 +201,137 @@ public class KafeServiceTest {
         reservation.setId(60L);
         when(reservationRepository.findById(60L)).thenReturn(Optional.of(reservation));
 
-        Reservation result = kafeService.expireReservation(60L);
+        Reservation result = kafeService.expireReservation(60L, merchant);
 
         assertEquals("EXPIRED", result.getStatus());
         assertEquals(3, testUser.getNoShowCount());
         assertTrue(testUser.isBanned());
         verify(userRepository, times(1)).save(testUser);
+    }
+
+    @Test
+    void claimReservationByCode_ThrowsSecurityException_WhenReservationBelongsToOtherCafe() {
+        merchant.setCafeId(99L);
+        Reservation reservation = new Reservation(testDeal, testUser, "KAFE-9999");
+        when(reservationRepository.findByClaimCode("KAFE-9999")).thenReturn(Optional.of(reservation));
+
+        SecurityException ex = assertThrows(SecurityException.class, () ->
+                kafeService.claimReservationByCode("KAFE-9999", merchant)
+        );
+
+        assertTrue(ex.getMessage().contains("different cafe"));
+        assertEquals("PENDING", reservation.getStatus());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    void claimReservation_ThrowsSecurityException_WhenMerchantHasNoCafe() {
+        merchant.setCafeId(null);
+
+        SecurityException ex = assertThrows(SecurityException.class, () ->
+                kafeService.claimReservation(50L, merchant)
+        );
+
+        assertTrue(ex.getMessage().contains("not linked to a cafe"));
+        verify(reservationRepository, never()).findById(any());
+    }
+
+    @Test
+    void expireReservation_ThrowsSecurityException_WhenCalledByCustomer() {
+        User customer = new User("Other Customer", "088776655", "pass", "CUSTOMER");
+        customer.setId(3L);
+
+        assertThrows(SecurityException.class, () -> kafeService.expireReservation(60L, customer));
+
+        assertEquals(0, testUser.getNoShowCount());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void expireReservation_ThrowsSecurityException_WhenReservationBelongsToOtherCafe() {
+        merchant.setCafeId(99L);
+        Reservation reservation = new Reservation(testDeal, testUser, "KAFE-5678");
+        when(reservationRepository.findById(60L)).thenReturn(Optional.of(reservation));
+
+        assertThrows(SecurityException.class, () -> kafeService.expireReservation(60L, merchant));
+
+        assertEquals("PENDING", reservation.getStatus());
+        assertEquals(0, testUser.getNoShowCount());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void getMerchantReservations_ReturnsOnlyOwnCafe() {
+        when(reservationRepository.findByDealCafeIdOrderByCreatedAtDesc(10L)).thenReturn(List.of());
+
+        kafeService.getMerchantReservations(merchant);
+
+        verify(reservationRepository).findByDealCafeIdOrderByCreatedAtDesc(10L);
+        verify(reservationRepository, never()).findAll();
+    }
+
+    @Test
+    void getCafeReservations_ThrowsSecurityException_ForOtherCafe() {
+        assertThrows(SecurityException.class, () -> kafeService.getCafeReservations(99L, merchant));
+        verify(reservationRepository, never()).findByDealCafeIdOrderByCreatedAtDesc(any());
+    }
+
+    @Test
+    void createDeal_Success_DefaultsPickupDateToTodayInPhnomPenh() {
+        when(cafeRepository.findById(10L)).thenReturn(Optional.of(testCafe));
+        when(surplusDealRepository.save(any(SurplusDeal.class))).thenAnswer(i -> i.getArgument(0));
+
+        SurplusDeal deal = kafeService.createDeal(dealRequest(6.00, 2.00, null, "19:00", "20:30"), merchant);
+
+        assertEquals(testCafe, deal.getCafe());
+        assertEquals("Mystery Pastry Bag", deal.getTitle());
+        assertEquals(3, deal.getQuantityAvailable());
+        assertEquals(LocalDate.of(2026, 10, 15), deal.getPickupDate());
+    }
+
+    @Test
+    void createDeal_ThrowsException_WhenDiscountNotLowerThanOriginal() {
+        when(cafeRepository.findById(10L)).thenReturn(Optional.of(testCafe));
+
+        assertThrows(IllegalStateException.class, () ->
+                kafeService.createDeal(dealRequest(5.00, 5.00, null, "19:00", "20:30"), merchant));
+        verify(surplusDealRepository, never()).save(any());
+    }
+
+    @Test
+    void createDeal_ThrowsException_WhenPickupEndNotAfterStart() {
+        when(cafeRepository.findById(10L)).thenReturn(Optional.of(testCafe));
+
+        assertThrows(IllegalStateException.class, () ->
+                kafeService.createDeal(dealRequest(6.00, 2.00, null, "20:30", "19:00"), merchant));
+        verify(surplusDealRepository, never()).save(any());
+    }
+
+    @Test
+    void createDeal_ThrowsException_WhenPickupDateInPast() {
+        when(cafeRepository.findById(10L)).thenReturn(Optional.of(testCafe));
+
+        assertThrows(IllegalStateException.class, () ->
+                kafeService.createDeal(dealRequest(6.00, 2.00, LocalDate.of(2026, 10, 14), "19:00", "20:30"), merchant));
+        verify(surplusDealRepository, never()).save(any());
+    }
+
+    @Test
+    void createDeal_ThrowsSecurityException_WhenNotMerchant() {
+        assertThrows(SecurityException.class, () ->
+                kafeService.createDeal(dealRequest(6.00, 2.00, null, "19:00", "20:30"), testUser));
+        verify(surplusDealRepository, never()).save(any());
+    }
+
+    private CreateDealRequest dealRequest(double original, double discount, LocalDate date, String start, String end) {
+        CreateDealRequest request = new CreateDealRequest();
+        request.setTitle("Mystery Pastry Bag");
+        request.setOriginalPrice(original);
+        request.setDiscountPrice(discount);
+        request.setQuantity(3);
+        request.setPickupDate(date);
+        request.setPickupStart(start);
+        request.setPickupEnd(end);
+        return request;
     }
 }

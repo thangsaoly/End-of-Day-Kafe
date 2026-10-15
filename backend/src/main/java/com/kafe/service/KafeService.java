@@ -1,5 +1,6 @@
 package com.kafe.service;
 
+import com.kafe.dto.CreateDealRequest;
 import com.kafe.model.Cafe;
 import com.kafe.model.Reservation;
 import com.kafe.model.SurplusDeal;
@@ -11,6 +12,8 @@ import com.kafe.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,15 +24,18 @@ public class KafeService {
     private final SurplusDealRepository surplusDealRepository;
     private final ReservationRepository reservationRepository;
     private final UserRepository userRepository;
+    private final Clock clock;
 
     public KafeService(CafeRepository cafeRepository, 
                        SurplusDealRepository surplusDealRepository,
                        ReservationRepository reservationRepository,
-                       UserRepository userRepository) {
+                       UserRepository userRepository,
+                       Clock clock) {
         this.cafeRepository = cafeRepository;
         this.surplusDealRepository = surplusDealRepository;
         this.reservationRepository = reservationRepository;
         this.userRepository = userRepository;
+        this.clock = clock;
     }
 
     public List<Cafe> getAllCafes() {
@@ -44,8 +50,50 @@ public class KafeService {
         return reservationRepository.findByUserOrderByCreatedAtDesc(user);
     }
 
-    public List<Reservation> getCafeReservations(Long cafeId) {
+    public List<Reservation> getCafeReservations(Long cafeId, User currentUser) {
+        Long merchantCafeId = requireMerchantCafe(currentUser);
+        if (!merchantCafeId.equals(cafeId)) {
+            throw new SecurityException("Access denied: You can only view reservations for your own cafe.");
+        }
         return reservationRepository.findByDealCafeIdOrderByCreatedAtDesc(cafeId);
+    }
+
+    public List<Reservation> getMerchantReservations(User currentUser) {
+        Long merchantCafeId = requireMerchantCafe(currentUser);
+        return reservationRepository.findByDealCafeIdOrderByCreatedAtDesc(merchantCafeId);
+    }
+
+    @Transactional
+    public SurplusDeal createDeal(CreateDealRequest request, User currentUser) {
+        Long merchantCafeId = requireMerchantCafe(currentUser);
+        Cafe cafe = cafeRepository.findById(merchantCafeId)
+                .orElseThrow(() -> new IllegalArgumentException("Cafe not found: " + merchantCafeId));
+
+        if (request.getDiscountPrice() >= request.getOriginalPrice()) {
+            throw new IllegalStateException("Discount price must be lower than the original price.");
+        }
+        // HH:mm strings compare correctly as text
+        if (request.getPickupEnd().compareTo(request.getPickupStart()) <= 0) {
+            throw new IllegalStateException("Pickup end time must be after the pickup start time.");
+        }
+        LocalDate today = LocalDate.now(clock);
+        LocalDate pickupDate = request.getPickupDate() != null ? request.getPickupDate() : today;
+        if (pickupDate.isBefore(today)) {
+            throw new IllegalStateException("Pickup date cannot be in the past.");
+        }
+
+        SurplusDeal deal = new SurplusDeal(
+                cafe,
+                request.getTitle().trim(),
+                request.getOriginalPrice(),
+                request.getDiscountPrice(),
+                request.getQuantity(),
+                request.getPickupStart(),
+                request.getPickupEnd(),
+                request.getImageUrl()
+        );
+        deal.setPickupDate(pickupDate);
+        return surplusDealRepository.save(deal);
     }
 
     @Transactional
@@ -90,9 +138,7 @@ public class KafeService {
 
     @Transactional
     public Reservation claimReservation(Long reservationId, User currentUser) {
-        if (currentUser == null || !"MERCHANT".equalsIgnoreCase(currentUser.getRole())) {
-            throw new SecurityException("Access denied: Only merchant accounts can claim customer reservations.");
-        }
+        requireMerchantCafe(currentUser);
 
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new IllegalArgumentException("Reservation not found: " + reservationId));
@@ -100,6 +146,7 @@ public class KafeService {
         if (reservation.getUser().getId().equals(currentUser.getId())) {
             throw new SecurityException("Access denied: Customers cannot self-complete or claim their own reservations.");
         }
+        requireOwnCafe(currentUser, reservation);
 
         if (!"PENDING".equals(reservation.getStatus())) {
             throw new IllegalStateException("Reservation is already processed: " + reservation.getStatus());
@@ -109,22 +156,9 @@ public class KafeService {
         return reservationRepository.save(reservation);
     }
 
-    public Reservation claimReservation(Long reservationId) {
-        User dummyMerchant = new User();
-        dummyMerchant.setRole("MERCHANT");
-        dummyMerchant.setId(-999L);
-        return claimReservation(reservationId, dummyMerchant);
-    }
-
-    public List<Reservation> getAllReservations() {
-        return reservationRepository.findAll();
-    }
-
     @Transactional
     public Reservation claimReservationByCode(String claimCode, User currentUser) {
-        if (currentUser == null || !"MERCHANT".equalsIgnoreCase(currentUser.getRole())) {
-            throw new SecurityException("Access denied: Only merchant accounts can claim customer reservations.");
-        }
+        requireMerchantCafe(currentUser);
 
         if (claimCode == null || claimCode.trim().isEmpty()) {
             throw new IllegalArgumentException("Claim code cannot be empty");
@@ -136,6 +170,7 @@ public class KafeService {
         if (reservation.getUser().getId().equals(currentUser.getId())) {
             throw new SecurityException("Access denied: Customers cannot self-complete or claim their own reservations.");
         }
+        requireOwnCafe(currentUser, reservation);
 
         if (!"PENDING".equals(reservation.getStatus())) {
             throw new IllegalStateException("Reservation is already processed: " + reservation.getStatus());
@@ -145,18 +180,14 @@ public class KafeService {
         return reservationRepository.save(reservation);
     }
 
-    public Reservation claimReservationByCode(String claimCode) {
-        User dummyMerchant = new User();
-        dummyMerchant.setRole("MERCHANT");
-        dummyMerchant.setId(-999L);
-        return claimReservationByCode(claimCode, dummyMerchant);
-    }
-
     @Transactional
-    public Reservation expireReservation(Long reservationId) {
+    public Reservation expireReservation(Long reservationId, User currentUser) {
+        requireMerchantCafe(currentUser);
+
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new IllegalArgumentException("Reservation not found: " + reservationId));
-        
+        requireOwnCafe(currentUser, reservation);
+
         if (!"PENDING".equals(reservation.getStatus())) {
             throw new IllegalStateException("Reservation is already processed: " + reservation.getStatus());
         }
@@ -173,5 +204,22 @@ public class KafeService {
         userRepository.save(user);
 
         return reservation;
+    }
+
+    // Returns the merchant's cafe id, or throws if the user is not a merchant linked to a cafe
+    private Long requireMerchantCafe(User user) {
+        if (user == null || !"MERCHANT".equalsIgnoreCase(user.getRole())) {
+            throw new SecurityException("Access denied: Only merchant accounts can manage cafe reservations and deals.");
+        }
+        if (user.getCafeId() == null) {
+            throw new SecurityException("Access denied: This merchant account is not linked to a cafe yet.");
+        }
+        return user.getCafeId();
+    }
+
+    private void requireOwnCafe(User merchant, Reservation reservation) {
+        if (!merchant.getCafeId().equals(reservation.getDeal().getCafe().getId())) {
+            throw new SecurityException("Access denied: This reservation belongs to a different cafe.");
+        }
     }
 }
