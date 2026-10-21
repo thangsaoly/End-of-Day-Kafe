@@ -24,7 +24,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.kafe.android.model.Reservation
+import com.kafe.android.qr.ClaimCodes
+import com.kafe.android.ui.components.ClaimQrDialog
 import com.kafe.android.ui.components.DealCard
 import com.kafe.android.viewmodel.KafeViewModel
 import com.kafe.android.viewmodel.UiEvent
@@ -534,6 +539,15 @@ fun CustomerReservationsTab(viewModel: KafeViewModel) {
 fun MerchantReservationsTab(viewModel: KafeViewModel) {
     val merchantReservations by viewModel.merchantReservationsState.collectAsState()
     var inputCode by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val qrScanner = remember(context) {
+        GmsBarcodeScanning.getClient(
+            context,
+            GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .build()
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Quick Claim Code Scanner / Manual Entry Card
@@ -563,6 +577,38 @@ fun MerchantReservationsTab(viewModel: KafeViewModel) {
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        qrScanner.startScan()
+                            .addOnSuccessListener { barcode ->
+                                val code = ClaimCodes.normalize(barcode.rawValue)
+                                if (code != null) {
+                                    viewModel.claimReservationByCode(code)
+                                } else {
+                                    Toast.makeText(context, "That QR code is not a Kafe claim code.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .addOnFailureListener {
+                                Toast.makeText(context, "Scanner unavailable. Please type the code instead.", Toast.LENGTH_LONG).show()
+                            }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CoffeePrimary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Scan Customer QR Code", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Or type the code manually:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -766,6 +812,11 @@ fun ReservationCard(
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    var showQr by remember { mutableStateOf(false) }
+
+    if (showQr) {
+        ClaimQrDialog(reservation = reservation, onDismiss = { showQr = false })
+    }
 
     val statusColor = when (reservation.status) {
         "PENDING" -> WarningYellow
@@ -856,6 +907,18 @@ fun ReservationCard(
                     tint = CoffeePrimary,
                     modifier = Modifier.size(20.dp)
                 )
+            }
+
+            if (reservation.status == "PENDING") {
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { showQr = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = CoffeePrimary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Show QR Code for Pickup", fontWeight = FontWeight.Bold)
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
