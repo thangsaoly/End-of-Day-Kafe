@@ -26,7 +26,8 @@ data class SurplusDeal(
 data class User(
     val id: Long,
     val name: String,
-    val phoneNumber: String,
+    // Null for accounts created with Firebase email or Google sign-in
+    val phoneNumber: String?,
     val email: String?,
     val emailConfirmed: Boolean,
     val noShowCount: Int,

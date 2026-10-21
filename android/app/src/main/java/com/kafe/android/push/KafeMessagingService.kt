@@ -2,6 +2,7 @@ package com.kafe.android.push
 
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.kafe.android.auth.FirebaseAuthClient
 import com.kafe.android.network.AuthManager
 import com.kafe.android.network.KafeApi
 import com.kafe.android.repository.KafeRepository
@@ -30,9 +31,9 @@ class KafeMessagingService : FirebaseMessagingService() {
 
     // FCM rotated this install's token; tell the backend if someone is logged in
     override fun onNewToken(token: String) {
-        val authToken = AuthManager(applicationContext).getToken() ?: return
+        if (!AuthManager(applicationContext).isLoggedIn()) return
         scope.launch {
-            KafeRepository(KafeApi.create()).registerDevice(authToken, token)
+            KafeRepository(KafeApi.create(FirebaseAuthClient())).registerDevice(token)
         }
     }
 

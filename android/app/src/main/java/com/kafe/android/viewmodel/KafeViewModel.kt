@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kafe.android.auth.AuthClient
 import com.kafe.android.model.Reservation
 import com.kafe.android.model.SurplusDeal
 import com.kafe.android.network.*
@@ -34,6 +35,7 @@ sealed interface UiEvent {
 class KafeViewModel(
     private val repository: KafeRepository,
     private val authManager: AuthManager,
+    private val authClient: AuthClient,
     private val pushTokens: PushTokens = PushTokens.None
 ) : ViewModel() {
 
@@ -53,7 +55,7 @@ class KafeViewModel(
     private val _focusedDealId = MutableStateFlow<Long?>(null)
     val focusedDealId: StateFlow<Long?> = _focusedDealId.asStateFlow()
 
-    var isLoggedIn: Boolean by mutableStateOf(authManager.isLoggedIn())
+    var isLoggedIn: Boolean by mutableStateOf(false)
         private set
 
     var isRefreshingReservations: Boolean by mutableStateOf(false)
@@ -62,27 +64,40 @@ class KafeViewModel(
     var isRefreshingMerchantReservations: Boolean by mutableStateOf(false)
         private set
 
-    var isMerchantMode: Boolean by mutableStateOf(authManager.isMerchantRole())
+    var isMerchantMode: Boolean by mutableStateOf(false)
 
-    var userRole: String by mutableStateOf(authManager.getUserRole())
+    var userRole: String by mutableStateOf("CUSTOMER")
+        private set
+
+    var userEmail: String? by mutableStateOf(null)
         private set
 
     private val _eventFlow = MutableSharedFlow<UiEvent>()
     val eventFlow: SharedFlow<UiEvent> = _eventFlow
 
     init {
-        loadDeals()
-        if (isLoggedIn) {
-            userRole = authManager.getUserRole()
-            isMerchantMode = authManager.isMerchantRole()
-            if (isMerchantMode) {
-                loadMerchantReservations()
-            } else {
-                loadReservations()
-            }
-            loadFavorites()
-            registerPushToken()
+        // A saved profile without a Firebase session (e.g. from the old phone login) is stale
+        if (authManager.isLoggedIn() && !authClient.isSignedIn) {
+            authManager.clearAuth()
         }
+        loadDeals()
+        if (authManager.isLoggedIn()) {
+            onSignedIn()
+        }
+    }
+
+    private fun onSignedIn() {
+        isLoggedIn = true
+        userRole = authManager.getUserRole()
+        userEmail = authManager.getUserEmail()
+        isMerchantMode = authManager.isMerchantRole()
+        if (isMerchantMode) {
+            loadMerchantReservations()
+        } else {
+            loadReservations()
+        }
+        loadFavorites()
+        registerPushToken()
     }
 
     fun toggleMerchantMode() {
@@ -106,10 +121,10 @@ class KafeViewModel(
     }
 
     fun loadReservations() {
-        val token = authManager.getToken() ?: return
+        if (!isLoggedIn) return
         isRefreshingReservations = true
         viewModelScope.launch {
-            repository.getReservations(token)
+            repository.getReservations()
                 .onSuccess { list ->
                     _reservationsState.value = list
                     isRefreshingReservations = false
@@ -121,10 +136,10 @@ class KafeViewModel(
     }
 
     fun loadMerchantReservations() {
-        val token = authManager.getToken() ?: return
+        if (!isLoggedIn) return
         isRefreshingMerchantReservations = true
         viewModelScope.launch {
-            repository.getMerchantReservations(token)
+            repository.getMerchantReservations()
                 .onSuccess { list ->
                     _merchantReservationsState.value = list
                     isRefreshingMerchantReservations = false
@@ -136,8 +151,7 @@ class KafeViewModel(
     }
 
     fun claimReservation(reservationId: Long) {
-        val token = authManager.getToken()
-        if (token == null) {
+        if (!isLoggedIn) {
             viewModelScope.launch {
                 _eventFlow.emit(UiEvent.ClaimError("Please log in as shop owner."))
             }
@@ -145,7 +159,7 @@ class KafeViewModel(
         }
 
         viewModelScope.launch {
-            repository.claimReservation(token, reservationId)
+            repository.claimReservation(reservationId)
                 .onSuccess { updated ->
                     loadMerchantReservations()
                     loadReservations()
@@ -158,8 +172,7 @@ class KafeViewModel(
     }
 
     fun claimReservationByCode(claimCode: String) {
-        val token = authManager.getToken()
-        if (token == null) {
+        if (!isLoggedIn) {
             viewModelScope.launch {
                 _eventFlow.emit(UiEvent.ClaimError("Please log in as shop owner."))
             }
@@ -175,7 +188,7 @@ class KafeViewModel(
         }
 
         viewModelScope.launch {
-            repository.claimReservationByCode(token, cleanCode)
+            repository.claimReservationByCode(cleanCode)
                 .onSuccess { updated ->
                     loadMerchantReservations()
                     loadReservations()
@@ -188,8 +201,7 @@ class KafeViewModel(
     }
 
     fun reserveDeal(dealId: Long) {
-        val token = authManager.getToken()
-        if (token == null) {
+        if (!isLoggedIn) {
             viewModelScope.launch {
                 _eventFlow.emit(UiEvent.ReservationError("Please log in to make a reservation."))
             }
@@ -197,7 +209,7 @@ class KafeViewModel(
         }
 
         viewModelScope.launch {
-            repository.reserveDeal(token, dealId)
+            repository.reserveDeal(dealId)
                 .onSuccess { reservation ->
                     // Update local deal quantity in _uiState
                     val currentState = _uiState.value
@@ -221,144 +233,98 @@ class KafeViewModel(
         }
     }
 
-    // Authentication Actions
-    fun login(phone: String, pass: String, onResult: (Result<AuthResponse>) -> Unit) {
+    // Authentication: Firebase signs the user in, then the backend creates/loads their profile
+
+    fun login(email: String, password: String, onResult: (Result<Unit>) -> Unit) {
+        authenticate(onResult) {
+            authClient.signInWithEmail(email, password)
+            SessionRequest()
+        }
+    }
+
+    fun register(name: String, email: String, password: String, role: String = "CUSTOMER", onResult: (Result<Unit>) -> Unit) {
+        authenticate(onResult) {
+            authClient.signUpWithEmail(email, password, name)
+            SessionRequest(name = name, role = role)
+        }
+    }
+
+    // The role only matters if this Google account is new to the backend
+    fun signInWithGoogle(googleIdToken: String, role: String = "CUSTOMER", onResult: (Result<Unit>) -> Unit) {
+        authenticate(onResult) {
+            authClient.signInWithGoogle(googleIdToken)
+            SessionRequest(role = role)
+        }
+    }
+
+    private fun authenticate(onResult: (Result<Unit>) -> Unit, firebaseSignIn: suspend () -> SessionRequest) {
         viewModelScope.launch {
-            repository.login(LoginRequest(phone, pass))
-                .onSuccess { response ->
-                    authManager.saveAuth(
-                        token = response.token,
-                        userId = response.id,
-                        name = response.name,
-                        phoneNumber = response.phoneNumber,
-                        email = response.email,
-                        emailConfirmed = response.emailConfirmed,
-                        role = response.role
-                    )
-                    isLoggedIn = true
-                    userRole = response.role
-                    isMerchantMode = "MERCHANT".equals(response.role, ignoreCase = true)
+            val session = try {
+                firebaseSignIn()
+            } catch (e: Exception) {
+                onResult(Result.failure(e))
+                return@launch
+            }
+            repository.startSession(session.name, session.role)
+                .onSuccess { profile ->
+                    authManager.saveProfile(profile)
+                    onSignedIn()
                     loadDeals()
-                    if (isMerchantMode) {
-                        loadMerchantReservations()
-                    } else {
-                        loadReservations()
-                    }
-                    loadFavorites()
-                    registerPushToken()
-                    onResult(Result.success(response))
+                    onResult(Result.success(Unit))
                 }
-                .onFailure {
-                    onResult(Result.failure(it))
-                }
-        }
-    }
-
-    fun register(name: String, phone: String, pass: String, role: String = "CUSTOMER", onResult: (Result<AuthResponse>) -> Unit) {
-        viewModelScope.launch {
-            repository.register(RegisterRequest(name, phone, pass, role))
-                .onSuccess { response ->
-                    authManager.saveAuth(
-                        token = response.token,
-                        userId = response.id,
-                        name = response.name,
-                        phoneNumber = response.phoneNumber,
-                        email = response.email,
-                        emailConfirmed = response.emailConfirmed,
-                        role = response.role
-                    )
-                    isLoggedIn = true
-                    userRole = response.role
-                    isMerchantMode = "MERCHANT".equals(response.role, ignoreCase = true)
-                    loadDeals()
-                    if (isMerchantMode) {
-                        loadMerchantReservations()
-                    } else {
-                        loadReservations()
-                    }
-                    loadFavorites()
-                    registerPushToken()
-                    onResult(Result.success(response))
-                }
-                .onFailure {
-                    onResult(Result.failure(it))
-                }
-        }
-    }
-
-    fun linkEmail(email: String, onResult: (Result<String>) -> Unit) {
-        val token = authManager.getToken() ?: return
-        viewModelScope.launch {
-            repository.linkEmail(token, email)
-                .onSuccess { msg ->
-                    authManager.updateEmail(email, false)
-                    onResult(Result.success(msg))
-                }
-                .onFailure {
-                    onResult(Result.failure(it))
-                }
-        }
-    }
-
-    fun verifyEmail(email: String, code: String, onResult: (Result<String>) -> Unit) {
-        val token = authManager.getToken() ?: return
-        viewModelScope.launch {
-            repository.verifyEmail(token, VerifyEmailRequest(email, code))
-                .onSuccess { msg ->
-                    authManager.updateEmail(email, true)
-                    onResult(Result.success(msg))
-                }
-                .onFailure {
-                    onResult(Result.failure(it))
+                .onFailure { error ->
+                    // e.g. banned or backend unreachable: don't stay half signed in
+                    authClient.signOut()
+                    onResult(Result.failure(error))
                 }
         }
     }
 
     fun forgotPassword(email: String, onResult: (Result<String>) -> Unit) {
         viewModelScope.launch {
-            repository.forgotPassword(ForgotPasswordRequest(email))
-                .onSuccess { onResult(Result.success(it)) }
-                .onFailure { onResult(Result.failure(it)) }
-        }
-    }
-
-    fun resetPassword(email: String, code: String, pass: String, onResult: (Result<String>) -> Unit) {
-        viewModelScope.launch {
-            repository.resetPassword(ResetPasswordRequest(email, code, pass))
-                .onSuccess { onResult(Result.success(it)) }
-                .onFailure { onResult(Result.failure(it)) }
+            try {
+                authClient.sendPasswordReset(email)
+                // Same message whether or not the account exists, so emails can't be probed
+                onResult(Result.success("If an account exists for $email, a password reset link has been sent."))
+            } catch (e: Exception) {
+                onResult(Result.failure(e))
+            }
         }
     }
 
     fun logout() {
-        // Stop this phone getting the user's alerts. Grab the auth token before it is cleared.
-        authManager.getToken()?.let { authToken ->
-            viewModelScope.launch {
-                pushTokens.current()?.let { repository.unregisterDevice(authToken, it) }
-            }
-        }
+        val wasLoggedIn = isLoggedIn
         _favoriteCafeIds.value = emptySet()
         authManager.clearAuth()
         isLoggedIn = false
         userRole = "CUSTOMER"
+        userEmail = null
         isMerchantMode = false
         _reservationsState.value = emptyList()
         _merchantReservationsState.value = emptyList()
         loadDeals()
+
+        viewModelScope.launch {
+            // Stop this phone getting the user's alerts. Must run before signOut,
+            // while the request can still carry the user's Firebase token.
+            if (wasLoggedIn) {
+                pushTokens.current()?.let { repository.unregisterDevice(it) }
+            }
+            authClient.signOut()
+        }
     }
 
     fun loadFavorites() {
-        val token = authManager.getToken() ?: return
+        if (!isLoggedIn) return
         viewModelScope.launch {
-            repository.getFavorites(token)
+            repository.getFavorites()
                 .onSuccess { cafes -> _favoriteCafeIds.value = cafes.map { it.id }.toSet() }
         }
     }
 
     // Updates the heart immediately, then reverts if the server call fails
     fun toggleFavorite(cafeId: Long) {
-        val token = authManager.getToken()
-        if (token == null) {
+        if (!isLoggedIn) {
             viewModelScope.launch {
                 _eventFlow.emit(UiEvent.FavoriteError("Please log in to follow cafes."))
             }
@@ -370,9 +336,9 @@ class KafeViewModel(
 
         viewModelScope.launch {
             val result = if (wasFavorite) {
-                repository.removeFavorite(token, cafeId)
+                repository.removeFavorite(cafeId)
             } else {
-                repository.addFavorite(token, cafeId)
+                repository.addFavorite(cafeId)
             }
             result.onFailure { error ->
                 _favoriteCafeIds.value = if (wasFavorite) _favoriteCafeIds.value + cafeId else _favoriteCafeIds.value - cafeId
@@ -392,10 +358,9 @@ class KafeViewModel(
     }
 
     private fun registerPushToken() {
-        val token = authManager.getToken() ?: return
         viewModelScope.launch {
             val pushToken = pushTokens.current() ?: return@launch
-            repository.registerDevice(token, pushToken)
+            repository.registerDevice(pushToken)
         }
     }
 }

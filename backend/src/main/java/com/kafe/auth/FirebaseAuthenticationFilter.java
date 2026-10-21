@@ -1,4 +1,4 @@
-package com.kafe.config;
+package com.kafe.auth;
 
 import com.kafe.model.User;
 import com.kafe.repository.UserRepository;
@@ -16,46 +16,50 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.Collections;
 
+// Authenticates requests carrying "Authorization: Bearer <Firebase ID token>"
 @Component
-public class JwtAuthenticationFilter extends OncePerRequestFilter {
+public class FirebaseAuthenticationFilter extends OncePerRequestFilter {
 
-    private final JwtTokenProvider tokenProvider;
+    // Set for every valid token, even before the user has a backend account,
+    // so POST /api/auth/session can create one
+    public static final String VERIFIED_TOKEN_ATTRIBUTE = "kafe.verifiedFirebaseToken";
+
+    private final FirebaseTokenVerifier tokenVerifier;
     private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtTokenProvider tokenProvider, UserRepository userRepository) {
-        this.tokenProvider = tokenProvider;
+    public FirebaseAuthenticationFilter(FirebaseTokenVerifier tokenVerifier, UserRepository userRepository) {
+        this.tokenVerifier = tokenVerifier;
         this.userRepository = userRepository;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        try {
-            String jwt = getJwtFromRequest(request);
+        String idToken = getBearerToken(request);
+        if (idToken != null) {
+            try {
+                VerifiedToken token = tokenVerifier.verify(idToken);
+                request.setAttribute(VERIFIED_TOKEN_ATTRIBUTE, token);
 
-            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
-                String phoneNumber = tokenProvider.getPhoneNumberFromJWT(jwt);
-
-                User user = userRepository.findByPhoneNumber(phoneNumber).orElse(null);
+                User user = userRepository.findByFirebaseUid(token.uid()).orElse(null);
                 if (user != null && !user.isBanned()) {
                     UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                             user, null, Collections.emptyList());
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
+            } catch (InvalidTokenException e) {
+                // Leave the request unauthenticated; protected endpoints will refuse it
             }
-        } catch (Exception ex) {
-            // Log authentication failure
         }
 
         filterChain.doFilter(request, response);
     }
 
-    private String getJwtFromRequest(HttpServletRequest request) {
-        String bearerToken = request.getHeader("Authorization");
-        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
+    private static String getBearerToken(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        if (StringUtils.hasText(header) && header.startsWith("Bearer ")) {
+            return header.substring(7);
         }
         return null;
     }

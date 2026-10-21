@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.kafe.android.auth.AuthClient
+import com.kafe.android.auth.FirebaseAuthClient
 import com.kafe.android.network.AuthManager
 import com.kafe.android.network.KafeApi
 import com.kafe.android.push.FirebasePushTokens
@@ -24,12 +26,12 @@ class MainActivity : ComponentActivity() {
 
         Notifications.createChannels(this)
 
-        val api = KafeApi.create()
-        val repository = KafeRepository(api)
+        val authClient = FirebaseAuthClient()
+        val repository = KafeRepository(KafeApi.create(authClient))
         val authManager = AuthManager(applicationContext)
         viewModel = ViewModelProvider(
             this,
-            KafeViewModelFactory(repository, authManager, FirebasePushTokens())
+            KafeViewModelFactory(repository, authManager, authClient, FirebasePushTokens())
         )[KafeViewModel::class.java]
 
         // Opened by tapping a notification while the app was closed
@@ -60,12 +62,13 @@ class MainActivity : ComponentActivity() {
 class KafeViewModelFactory(
     private val repository: KafeRepository,
     private val authManager: AuthManager,
+    private val authClient: AuthClient,
     private val pushTokens: PushTokens
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(KafeViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return KafeViewModel(repository, authManager, pushTokens) as T
+            return KafeViewModel(repository, authManager, authClient, pushTokens) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

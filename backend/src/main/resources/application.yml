@@ -17,7 +17,11 @@ spring:
         dialect: org.hibernate.dialect.MySQL8Dialect
 
 app:
+  # Local development only: this email becomes the merchant of the first cafe on first sign-in
+  dev-merchant-email: ${DEV_MERCHANT_EMAIL:}
   firebase:
+    # Not secret: used to check that ID tokens were issued for this project
+    project-id: ${FIREBASE_PROJECT_ID:end-of-day-kafe}
     # Path to the Firebase Admin service-account JSON. Keep the file outside the repo
     # and set FIREBASE_CREDENTIALS. When empty, push notifications are logged instead of sent.
     credentials-path: ${FIREBASE_CREDENTIALS:}

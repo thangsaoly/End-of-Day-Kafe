@@ -2,12 +2,9 @@ package com.kafe.config;
 
 import com.kafe.model.Cafe;
 import com.kafe.model.SurplusDeal;
-import com.kafe.model.User;
 import com.kafe.repository.CafeRepository;
 import com.kafe.repository.SurplusDealRepository;
-import com.kafe.repository.UserRepository;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -21,18 +18,11 @@ public class DatabaseSeeder implements CommandLineRunner {
 
     private final CafeRepository cafeRepository;
     private final SurplusDealRepository surplusDealRepository;
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final Clock clock;
 
-    private static final String DEFAULT_MERCHANT_PHONE = "099888777";
-
-    public DatabaseSeeder(CafeRepository cafeRepository, SurplusDealRepository surplusDealRepository, 
-                          UserRepository userRepository, PasswordEncoder passwordEncoder, Clock clock) {
+    public DatabaseSeeder(CafeRepository cafeRepository, SurplusDealRepository surplusDealRepository, Clock clock) {
         this.cafeRepository = cafeRepository;
         this.surplusDealRepository = surplusDealRepository;
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
         this.clock = clock;
     }
 
@@ -40,28 +30,13 @@ public class DatabaseSeeder implements CommandLineRunner {
     public void run(String... args) {
         if (cafeRepository.count() > 0) {
             System.out.println("Database already contains seeded data. Skipping...");
-            linkDefaultMerchantToCafe();
             return;
         }
 
         System.out.println("Seeding database with Phnom Penh Cafes and Surplus Deals...");
 
-        // Seed default Customer and Merchant Users
-        if (userRepository.count() == 0) {
-            User defaultCustomer = new User(
-                "Test Customer",
-                "012345678",
-                passwordEncoder.encode("password"),
-                "CUSTOMER"
-            );
-            User defaultMerchant = new User(
-                "Shop Merchant",
-                DEFAULT_MERCHANT_PHONE,
-                passwordEncoder.encode("password"),
-                "MERCHANT"
-            );
-            userRepository.saveAll(Arrays.asList(defaultCustomer, defaultMerchant));
-        }
+        // Users are created on first Firebase sign-in (see AuthService); set DEV_MERCHANT_EMAIL
+        // to make your own account the merchant of the first cafe.
 
         // Seed Cafes
         Cafe c1 = new Cafe("Brown Coffee Roastery (BKK1)", 11.5512, 104.9215, "21:00", 
@@ -78,7 +53,6 @@ public class DatabaseSeeder implements CommandLineRunner {
             "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?q=80&w=400");
 
         cafeRepository.saveAll(Arrays.asList(c1, c2, c3, c4, c5, c6));
-        linkDefaultMerchantToCafe();
 
         // Seed Surplus Deals
         Random r = new Random();
@@ -131,17 +105,5 @@ public class DatabaseSeeder implements CommandLineRunner {
         }
 
         System.out.println("Successfully seeded database.");
-    }
-
-    // The demo merchant manages the first seeded cafe. Also backfills databases
-    // created before merchants were linked to cafes.
-    private void linkDefaultMerchantToCafe() {
-        userRepository.findByPhoneNumber(DEFAULT_MERCHANT_PHONE)
-                .filter(merchant -> merchant.getCafeId() == null)
-                .ifPresent(merchant -> cafeRepository.findAll().stream().findFirst().ifPresent(cafe -> {
-                    merchant.setCafeId(cafe.getId());
-                    userRepository.save(merchant);
-                    System.out.println("Linked default merchant to cafe: " + cafe.getName());
-                }));
     }
 }

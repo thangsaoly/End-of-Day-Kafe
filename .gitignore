@@ -85,6 +85,9 @@ logs/
 *firebase-adminsdk*.json
 serviceAccountKey*.json
 
+# Firebase client config (contains API keys — use google-services.json.example as template)
+**/google-services.json
+
 # Temporary / Cache files
 tmp/
 temp/

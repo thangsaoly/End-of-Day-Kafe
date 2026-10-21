@@ -799,7 +799,9 @@ fun MerchantReservationCard(
                         color = DarkCoffee
                     )
                     Text(
-                        text = "Phone: ${reservation.user.phoneNumber}",
+                        text = reservation.user.phoneNumber?.let { "Phone: $it" }
+                            ?: reservation.user.email?.let { "Email: $it" }
+                            ?: "No contact details",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray
                     )
@@ -1045,10 +1047,6 @@ fun ProfileTab(
     }
 
     val reservations by viewModel.reservationsState.collectAsState()
-    var emailInput by remember { mutableStateOf("") }
-    var codeInput by remember { mutableStateOf("") }
-    var emailStateMsg by remember { mutableStateOf<String?>(null) }
-    var codeStateMsg by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -1108,13 +1106,13 @@ fun ProfileTab(
                 val latestUser = reservations.firstOrNull()?.user
                 val noShows = latestUser?.noShowCount ?: 0
                 val emailVerified = latestUser?.emailConfirmed ?: false
-                val emailStr = latestUser?.email ?: "No email linked"
+                val emailStr = viewModel.userEmail ?: latestUser?.email ?: "No email"
 
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Linked Email:", color = Color.Gray)
+                    Text("Email:", color = Color.Gray)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = emailStr,
@@ -1158,116 +1156,6 @@ fun ProfileTab(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Email Link / Verification Section
-        val latestUser = reservations.firstOrNull()?.user
-        val isConfirmed = latestUser?.emailConfirmed ?: false
-        val linkedEmail = latestUser?.email
-
-        if (linkedEmail == null) {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Add Email (For Password Resets)",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = DarkCoffee
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = emailInput,
-                        onValueChange = { emailInput = it },
-                        label = { Text("Email Address") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (emailStateMsg != null) {
-                        Text(
-                            text = emailStateMsg!!,
-                            color = CoffeePrimary,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = {
-                            viewModel.linkEmail(emailInput) { result ->
-                                result.onSuccess {
-                                    emailStateMsg = "Code '123456' generated. Please verify!"
-                                    viewModel.loadReservations()
-                                }.onFailure {
-                                    emailStateMsg = "Error: ${it.localizedMessage}"
-                                }
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CoffeePrimary),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Send Verification Code")
-                    }
-                }
-            }
-        } else if (!isConfirmed) {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Verify Email",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = DarkCoffee
-                    )
-                    Text(
-                        text = "Enter code sent to: $linkedEmail",
-                        color = Color.Gray,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = codeInput,
-                        onValueChange = { codeInput = it },
-                        label = { Text("Verification Code") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (codeStateMsg != null) {
-                        Text(
-                            text = codeStateMsg!!,
-                            color = if (codeStateMsg!!.startsWith("Success")) EmeraldGreen else ErrorRed,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = {
-                            viewModel.verifyEmail(linkedEmail, codeInput) { result ->
-                                result.onSuccess {
-                                    codeStateMsg = "Success: Email successfully verified!"
-                                    viewModel.loadReservations()
-                                }.onFailure {
-                                    codeStateMsg = "Error: Incorrect verification code!"
-                                }
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CoffeePrimary),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Verify Code")
-                    }
-                }
-            }
-        }
 
         Spacer(modifier = Modifier.weight(1f))
 
