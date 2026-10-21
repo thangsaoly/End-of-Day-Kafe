@@ -10,6 +10,8 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
@@ -21,19 +23,24 @@ public class DatabaseSeeder implements CommandLineRunner {
     private final SurplusDealRepository surplusDealRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final Clock clock;
+
+    private static final String DEFAULT_MERCHANT_PHONE = "099888777";
 
     public DatabaseSeeder(CafeRepository cafeRepository, SurplusDealRepository surplusDealRepository, 
-                          UserRepository userRepository, PasswordEncoder passwordEncoder) {
+                          UserRepository userRepository, PasswordEncoder passwordEncoder, Clock clock) {
         this.cafeRepository = cafeRepository;
         this.surplusDealRepository = surplusDealRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.clock = clock;
     }
 
     @Override
     public void run(String... args) {
         if (cafeRepository.count() > 0) {
             System.out.println("Database already contains seeded data. Skipping...");
+            linkDefaultMerchantToCafe();
             return;
         }
 
@@ -49,7 +56,7 @@ public class DatabaseSeeder implements CommandLineRunner {
             );
             User defaultMerchant = new User(
                 "Shop Merchant",
-                "099888777",
+                DEFAULT_MERCHANT_PHONE,
                 passwordEncoder.encode("password"),
                 "MERCHANT"
             );
@@ -71,6 +78,7 @@ public class DatabaseSeeder implements CommandLineRunner {
             "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?q=80&w=400");
 
         cafeRepository.saveAll(Arrays.asList(c1, c2, c3, c4, c5, c6));
+        linkDefaultMerchantToCafe();
 
         // Seed Surplus Deals
         Random r = new Random();
@@ -118,9 +126,22 @@ public class DatabaseSeeder implements CommandLineRunner {
             }
 
             SurplusDeal deal = new SurplusDeal(cafe, title, original, discount, qty, pickupStart, pickupEnd, dealImage);
+            deal.setPickupDate(LocalDate.now(clock));
             surplusDealRepository.save(deal);
         }
 
         System.out.println("Successfully seeded database.");
+    }
+
+    // The demo merchant manages the first seeded cafe. Also backfills databases
+    // created before merchants were linked to cafes.
+    private void linkDefaultMerchantToCafe() {
+        userRepository.findByPhoneNumber(DEFAULT_MERCHANT_PHONE)
+                .filter(merchant -> merchant.getCafeId() == null)
+                .ifPresent(merchant -> cafeRepository.findAll().stream().findFirst().ifPresent(cafe -> {
+                    merchant.setCafeId(cafe.getId());
+                    userRepository.save(merchant);
+                    System.out.println("Linked default merchant to cafe: " + cafe.getName());
+                }));
     }
 }

@@ -1,5 +1,7 @@
 package com.kafe.android.model
 
+import com.google.gson.annotations.SerializedName
+
 data class Cafe(
     val id: Long,
     val name: String,
@@ -28,6 +30,8 @@ data class User(
     val email: String?,
     val emailConfirmed: Boolean,
     val noShowCount: Int,
+    // The backend serializes the Java boolean getter isBanned() as "banned"
+    @SerializedName("banned")
     val isBanned: Boolean
 )
 

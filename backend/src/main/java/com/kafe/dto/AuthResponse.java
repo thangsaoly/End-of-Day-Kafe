@@ -8,6 +8,7 @@ public class AuthResponse {
     private String email;
     private boolean emailConfirmed;
     private String role;
+    private Long cafeId;
 
     public AuthResponse(String token, Long id, String name, String phoneNumber, String email, boolean emailConfirmed) {
         this(token, id, name, phoneNumber, email, emailConfirmed, "CUSTOMER");
@@ -21,6 +22,11 @@ public class AuthResponse {
         this.email = email;
         this.emailConfirmed = emailConfirmed;
         this.role = role != null ? role : "CUSTOMER";
+    }
+
+    public AuthResponse(String token, Long id, String name, String phoneNumber, String email, boolean emailConfirmed, String role, Long cafeId) {
+        this(token, id, name, phoneNumber, email, emailConfirmed, role);
+        this.cafeId = cafeId;
     }
 
     public String getToken() {
@@ -77,5 +83,13 @@ public class AuthResponse {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public Long getCafeId() {
+        return cafeId;
+    }
+
+    public void setCafeId(Long cafeId) {
+        this.cafeId = cafeId;
     }
 }

@@ -51,7 +51,8 @@ public class AuthController {
                 user.getPhoneNumber(),
                 user.getEmail(),
                 user.isEmailConfirmed(),
-                user.getRole()
+                user.getRole(),
+                user.getCafeId()
         ));
     }
 
@@ -75,7 +76,8 @@ public class AuthController {
                 user.getPhoneNumber(),
                 user.getEmail(),
                 user.isEmailConfirmed(),
-                user.getRole()
+                user.getRole(),
+                user.getCafeId()
         ));
     }
 

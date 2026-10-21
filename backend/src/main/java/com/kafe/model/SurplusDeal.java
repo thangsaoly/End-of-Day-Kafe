@@ -2,6 +2,8 @@ package com.kafe.model;
 
 import jakarta.persistence.*;
 
+import java.time.LocalDate;
+
 @Entity
 @Table(name = "surplus_deals")
 public class SurplusDeal {
@@ -24,6 +26,11 @@ public class SurplusDeal {
 
     @Column(name = "quantity_available", nullable = false)
     private Integer quantityAvailable;
+
+    // Day the pickup window applies to (Asia/Phnom_Penh). Nullable only so that
+    // rows created before this column existed can still be loaded.
+    @Column(name = "pickup_date")
+    private LocalDate pickupDate;
 
     @Column(name = "pickup_start", nullable = false)
     private String pickupStart;
@@ -117,5 +124,13 @@ public class SurplusDeal {
 
     public void setImageUrl(String imageUrl) {
         this.imageUrl = imageUrl;
+    }
+
+    public LocalDate getPickupDate() {
+        return pickupDate;
+    }
+
+    public void setPickupDate(LocalDate pickupDate) {
+        this.pickupDate = pickupDate;
     }
 }
