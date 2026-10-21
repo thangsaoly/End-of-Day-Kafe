@@ -4,6 +4,7 @@ import com.kafe.android.model.Cafe
 import com.kafe.android.model.Reservation
 import com.kafe.android.model.SurplusDeal
 import com.kafe.android.network.AuthManager
+import com.kafe.android.push.PushTokens
 import com.kafe.android.repository.KafeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,7 +20,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.mockito.kotlin.doReturn
+import org.mockito.kotlin.never
+import org.mockito.kotlin.verify
+import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 
@@ -101,6 +107,7 @@ class KafeViewModelTest {
         whenever(authManager.getToken()).doReturn("mock_token")
         whenever(repository.getReservations("mock_token")).doReturn(Result.success(emptyList()))
         whenever(repository.getMerchantReservations("mock_token")).doReturn(Result.success(emptyList()))
+        whenever(repository.getFavorites("mock_token")).doReturn(Result.success(emptyList()))
 
         val viewModel = KafeViewModel(repository, authManager)
         advanceUntilIdle()
@@ -119,6 +126,7 @@ class KafeViewModelTest {
         whenever(authManager.getToken()).doReturn("mock_token")
         whenever(repository.getReservations("mock_token")).doReturn(Result.success(emptyList()))
         whenever(repository.getMerchantReservations("mock_token")).doReturn(Result.success(emptyList()))
+        whenever(repository.getFavorites("mock_token")).doReturn(Result.success(emptyList()))
 
         val sampleUser = com.kafe.android.model.User(1L, "Sophea", "012345678", "sophea@example.com", true, 0, false)
         val claimedReservation = Reservation(100L, sampleDeal, sampleUser, "KAFE-1234", "COMPLETED", "2026-08-06")
@@ -140,5 +148,118 @@ class KafeViewModelTest {
         assertEquals(1, events.size)
         assertTrue(events.first() is UiEvent.ClaimSuccess)
         assertEquals("COMPLETED", (events.first() as UiEvent.ClaimSuccess).reservation.status)
+    }
+
+    private val fakePushTokens = object : PushTokens {
+        override suspend fun current(): String = "push-123"
+    }
+
+    private suspend fun loggedInViewModel(pushTokens: PushTokens = PushTokens.None): KafeViewModel {
+        whenever(repository.getDeals()).doReturn(Result.success(listOf(sampleDeal)))
+        whenever(authManager.isLoggedIn()).doReturn(true)
+        whenever(authManager.getToken()).doReturn("mock_token")
+        whenever(repository.getReservations("mock_token")).doReturn(Result.success(emptyList()))
+        whenever(repository.getFavorites("mock_token")).doReturn(Result.success(emptyList()))
+        whenever(repository.registerDevice("mock_token", "push-123")).doReturn(Result.success(Unit))
+        return KafeViewModel(repository, authManager, pushTokens)
+    }
+
+    @Test
+    fun init_LoggedIn_LoadsFavoritesAndRegistersPushToken() = runTest {
+        whenever(authManager.isLoggedIn()).doReturn(true)
+        val viewModel = loggedInViewModel(fakePushTokens)
+        whenever(repository.getFavorites("mock_token")).doReturn(Result.success(listOf(sampleCafe)))
+        viewModel.loadFavorites()
+        advanceUntilIdle()
+
+        assertEquals(setOf(1L), viewModel.favoriteCafeIds.value)
+        verify(repository).registerDevice("mock_token", "push-123")
+    }
+
+    @Test
+    fun init_NoPushToken_DoesNotRegister() = runTest {
+        loggedInViewModel(PushTokens.None)
+        advanceUntilIdle()
+
+        verify(repository, never()).registerDevice(any(), any())
+    }
+
+    @Test
+    fun toggleFavorite_Success_AddsCafeImmediately() = runTest {
+        val viewModel = loggedInViewModel()
+        whenever(repository.addFavorite("mock_token", 1L)).doReturn(Result.success(Unit))
+        advanceUntilIdle()
+
+        viewModel.toggleFavorite(1L)
+        assertTrue(1L in viewModel.favoriteCafeIds.value) // optimistic, before the call finishes
+        advanceUntilIdle()
+
+        assertTrue(1L in viewModel.favoriteCafeIds.value)
+        verify(repository).addFavorite("mock_token", 1L)
+    }
+
+    @Test
+    fun toggleFavorite_Failure_RevertsAndEmitsError() = runTest {
+        val viewModel = loggedInViewModel()
+        whenever(repository.addFavorite("mock_token", 1L)).doReturn(Result.failure(Exception("Server down")))
+        advanceUntilIdle()
+
+        val events = mutableListOf<UiEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.eventFlow.collect { events.add(it) }
+        }
+
+        viewModel.toggleFavorite(1L)
+        advanceUntilIdle()
+
+        assertFalse(1L in viewModel.favoriteCafeIds.value)
+        assertEquals(UiEvent.FavoriteError("Server down"), events.single())
+    }
+
+    @Test
+    fun toggleFavorite_WhenAlreadyFavorite_Removes() = runTest {
+        val viewModel = loggedInViewModel()
+        whenever(repository.getFavorites("mock_token")).doReturn(Result.success(listOf(sampleCafe)))
+        whenever(repository.removeFavorite("mock_token", 1L)).doReturn(Result.success(Unit))
+        viewModel.loadFavorites()
+        advanceUntilIdle()
+
+        viewModel.toggleFavorite(1L)
+        advanceUntilIdle()
+
+        assertFalse(1L in viewModel.favoriteCafeIds.value)
+        verify(repository).removeFavorite("mock_token", 1L)
+    }
+
+    @Test
+    fun logout_UnregistersPushTokenAndClearsFavorites() = runTest {
+        val viewModel = loggedInViewModel(fakePushTokens)
+        whenever(repository.getFavorites("mock_token")).doReturn(Result.success(listOf(sampleCafe)))
+        whenever(repository.unregisterDevice("mock_token", "push-123")).doReturn(Result.success(Unit))
+        viewModel.loadFavorites()
+        advanceUntilIdle()
+
+        viewModel.logout()
+        advanceUntilIdle()
+
+        verify(repository).unregisterDevice("mock_token", "push-123")
+        verify(authManager).clearAuth()
+        assertTrue(viewModel.favoriteCafeIds.value.isEmpty())
+    }
+
+    @Test
+    fun openDeal_SetsFocusAndReloadsDeals_ThenClears() = runTest {
+        whenever(repository.getDeals()).doReturn(Result.success(listOf(sampleDeal)))
+        whenever(authManager.isLoggedIn()).doReturn(false)
+        val viewModel = KafeViewModel(repository, authManager)
+        advanceUntilIdle()
+
+        viewModel.openDeal(10L)
+        assertEquals(10L, viewModel.focusedDealId.value)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is UiState.Success)
+
+        viewModel.onDealFocused()
+        assertNull(viewModel.focusedDealId.value)
     }
 }

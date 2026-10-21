@@ -81,6 +81,10 @@ logs/
 .env.*
 !.env.example
 
+# Firebase Admin service-account keys (private keys, never commit)
+*firebase-adminsdk*.json
+serviceAccountKey*.json
+
 # Temporary / Cache files
 tmp/
 temp/

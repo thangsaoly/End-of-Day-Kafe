@@ -1,12 +1,17 @@
 package com.kafe.android.ui
 
+import android.Manifest
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -28,6 +33,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.kafe.android.model.Reservation
+import com.kafe.android.push.Notifications
 import com.kafe.android.qr.ClaimCodes
 import com.kafe.android.ui.components.ClaimQrDialog
 import com.kafe.android.ui.components.DealCard
@@ -58,6 +64,14 @@ fun MainScreen(
     var activeReservationDetail by remember { mutableStateOf<Reservation?>(null) }
     var showLoginWarningDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val focusedDealId by viewModel.focusedDealId.collectAsState()
+
+    // Tapped a "new deal" notification: show the Deals tab, which scrolls to the deal
+    LaunchedEffect(focusedDealId) {
+        if (focusedDealId != null) {
+            selectedTab = ScreenTab.DEALS
+        }
+    }
 
     // Listen for events
     LaunchedEffect(key1 = true) {
@@ -86,6 +100,12 @@ fun MainScreen(
                     snackbarHostState.showSnackbar(
                         message = event.message,
                         duration = SnackbarDuration.Long
+                    )
+                }
+                is UiEvent.FavoriteError -> {
+                    snackbarHostState.showSnackbar(
+                        message = event.message,
+                        duration = SnackbarDuration.Short
                     )
                 }
             }
@@ -341,13 +361,45 @@ fun MainScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DealsTab(
     viewModel: KafeViewModel,
     onLoginRequired: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val favoriteCafeIds by viewModel.favoriteCafeIds.collectAsState()
+    val focusedDealId by viewModel.focusedDealId.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+    var showFavoritesOnly by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val context = LocalContext.current
+
+    // Asked the first time someone follows a cafe, when the reason for alerts is obvious
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    val onFavoriteClick: (Long) -> Unit = { cafeId ->
+        val following = cafeId !in favoriteCafeIds
+        viewModel.toggleFavorite(cafeId)
+        if (following && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !Notifications.canPost(context)) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // Scroll to the deal from a tapped notification once the refreshed list arrives
+    LaunchedEffect(focusedDealId, uiState) {
+        val dealId = focusedDealId ?: return@LaunchedEffect
+        val state = uiState as? UiState.Success ?: return@LaunchedEffect
+        // Clear filters so the deal can't be hidden by them
+        searchQuery = ""
+        showFavoritesOnly = false
+        val index = state.deals.indexOfFirst { it.id == dealId }
+        if (index >= 0) {
+            listState.scrollToItem(index)
+        }
+        viewModel.onDealFocused()
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Search & Filter Bar
@@ -375,6 +427,31 @@ fun DealsTab(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
+
+        if (viewModel.isLoggedIn) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = !showFavoritesOnly,
+                    onClick = { showFavoritesOnly = false },
+                    label = { Text("All deals") }
+                )
+                FilterChip(
+                    selected = showFavoritesOnly,
+                    onClick = { showFavoritesOnly = true },
+                    label = { Text("Favourites (${favoriteCafeIds.size})") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                )
+            }
+        }
 
         when (val state = uiState) {
             is UiState.Loading -> {
@@ -414,15 +491,20 @@ fun DealsTab(
             }
             is UiState.Success -> {
                 val filteredDeals = state.deals.filter { deal ->
-                    searchQuery.isEmpty() ||
+                    (searchQuery.isEmpty() ||
                             deal.title.contains(searchQuery, ignoreCase = true) ||
-                            deal.cafe.name.contains(searchQuery, ignoreCase = true)
+                            deal.cafe.name.contains(searchQuery, ignoreCase = true)) &&
+                            (!showFavoritesOnly || deal.cafe.id in favoriteCafeIds)
                 }
 
                 if (filteredDeals.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = if (searchQuery.isNotEmpty()) "No deals match your search." else "No surplus deals nearby right now.\nCheck back later!",
+                            text = when {
+                                searchQuery.isNotEmpty() -> "No deals match your search."
+                                showFavoritesOnly -> "No deals from your favourite cafes right now.\nTap the heart on a deal to follow that cafe."
+                                else -> "No surplus deals nearby right now.\nCheck back later!"
+                            },
                             style = MaterialTheme.typography.bodyLarge,
                             color = Color.Gray,
                             textAlign = TextAlign.Center
@@ -430,12 +512,19 @@ fun DealsTab(
                     }
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
                         items(filteredDeals, key = { it.id }) { deal ->
                             DealCard(
                                 deal = deal,
+                                isFavorite = deal.cafe.id in favoriteCafeIds,
+                                onFavoriteClick = if (viewModel.isLoggedIn) {
+                                    { onFavoriteClick(deal.cafe.id) }
+                                } else {
+                                    null
+                                },
                                 onReserveClick = { id ->
                                     if (viewModel.isLoggedIn) {
                                         viewModel.reserveDeal(id)

@@ -3,8 +3,12 @@ package com.kafe.android.ui.components
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,7 +35,10 @@ private val SurfaceGrey = Color(0xFFF9F9F9)
 fun DealCard(
     deal: SurplusDeal,
     onReserveClick: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isFavorite: Boolean = false,
+    // Null hides the heart (e.g. when logged out)
+    onFavoriteClick: (() -> Unit)? = null
 ) {
     val isSoldOut = deal.quantityAvailable <= 0
     val cardBg = if (isSoldOut) Color(0xFFF0F0F0) else SurfaceGrey
@@ -92,14 +99,29 @@ fun DealCard(
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                Text(
-                    text = deal.cafe.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = if (isSoldOut) Color.Gray else CoffeePrimary,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = deal.cafe.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (isSoldOut) Color.Gray else CoffeePrimary,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (onFavoriteClick != null) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = if (isFavorite) "Unfollow ${deal.cafe.name}" else "Follow ${deal.cafe.name}",
+                            tint = if (isFavorite) BoldRed else Color.Gray,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(onClick = onFavoriteClick)
+                        )
+                    }
+                }
                 
                 Text(
                     text = deal.title,

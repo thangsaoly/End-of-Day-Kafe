@@ -2,9 +2,11 @@ package com.kafe.android.network
 
 import android.os.Build
 import com.kafe.android.BuildConfig
+import com.kafe.android.model.Cafe
 import com.kafe.android.model.Reservation
 import com.kafe.android.model.SurplusDeal
 import okhttp3.ResponseBody
+import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
@@ -47,6 +49,10 @@ data class ResetPasswordRequest(
     val newPassword: String
 )
 
+data class DeviceTokenRequest(
+    val token: String
+)
+
 interface KafeApi {
 
     @GET("deals")
@@ -80,6 +86,37 @@ interface KafeApi {
         @Header("Authorization") token: String,
         @Path("claimCode") claimCode: String
     ): Reservation
+
+    // Favourite cafes
+    @GET("favorites")
+    suspend fun getFavorites(
+        @Header("Authorization") token: String
+    ): List<Cafe>
+
+    @POST("favorites/{cafeId}")
+    suspend fun addFavorite(
+        @Header("Authorization") token: String,
+        @Path("cafeId") cafeId: Long
+    ): Cafe
+
+    @DELETE("favorites/{cafeId}")
+    suspend fun removeFavorite(
+        @Header("Authorization") token: String,
+        @Path("cafeId") cafeId: Long
+    ): Response<Unit>
+
+    // Push notification device tokens
+    @POST("devices")
+    suspend fun registerDevice(
+        @Header("Authorization") token: String,
+        @Body request: DeviceTokenRequest
+    ): Response<Unit>
+
+    @POST("devices/unregister")
+    suspend fun unregisterDevice(
+        @Header("Authorization") token: String,
+        @Body request: DeviceTokenRequest
+    ): Response<Unit>
 
     // Authentication Endpoints
     @POST("auth/register")

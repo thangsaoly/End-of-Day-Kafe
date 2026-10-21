@@ -90,6 +90,7 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.analytics)
+    implementation(libs.firebase.messaging)
 
     // QR claim codes: zxing draws them, the Google code scanner reads them (no camera permission)
     implementation(libs.zxing.core)
